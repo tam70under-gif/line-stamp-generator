@@ -48,51 +48,73 @@ def generate_stamp(base_image, text, style_prompt=""):
         
         if base_image:
             try:
-                # Resize base image if too large (optional, but good practice for API)
-                img_byte_arr = io.BytesIO()
-                base_image.save(img_byte_arr, format='PNG')
-                # Base64 encoding is handled by the SDK if we pass the PIL image directly usually, 
-                # or we can pass bytes. The new SDK supports PIL images in contents.
+                # Step 1: Deep analysis of the character
+                analysis_prompt = """
+                Analyze this character image for a LINE sticker project. 
+                Identify and describe in detail:
+                1. Art Style & Line Quality: (e.g., thick/thin lines, clean/sketchy, vector/hand-drawn)
+                2. Color Palette: (exact colors, shading style, gradients)
+                3. Key Features: (proportions, eye shape, accessories, hair style)
+                4. Unique Identifiers: (patterns, marks, specific costume details)
+                
+                Provide the analysis in a way that helps another AI model reproduce this EXACT character consistently.
+                """
                 
                 response = _client.models.generate_content(
                     model='gemini-1.5-pro',
-                    contents=[
-                        "Describe this character in detail, focusing on physical appearance (hair, eyes, clothes, colors), art style, and key features so that an artist can draw it exactly the same. Keep it concise but descriptive.",
-                        base_image
-                    ]
+                    contents=[analysis_prompt, base_image]
                 )
                 if response.text:
                     character_description = response.text
             except Exception as e:
                 print(f"Error describing image: {e}")
-                # Fallback to default description if vision fails, but log it
                 pass
 
-        # Step 2: Generate Image with Imagen 4 (as 3.0 was not found, but 4.0 is available)
-        full_prompt = f"""
-        Create a LINE sticker/stamp illustration of a character.
+        # Step 2: Generate Image with Imagen 4 using SubjectReferenceImage
+        ref_id = "input_character"
         
-        Character Description:
+        # Prepare the reference images list
+        reference_images = []
+        if base_image:
+            # Convert PIL image to bytes for the SDK
+            img_byte_arr = io.BytesIO()
+            base_image.save(img_byte_arr, format='PNG')
+            
+            reference_images.append(
+                types.ReferenceImage(
+                    reference_id=ref_id,
+                    reference_type="SUBJECT",
+                    image=types.Part.from_bytes(
+                        data=img_byte_arr.getvalue(),
+                        mime_type="image/png"
+                    )
+                )
+            )
+
+        full_prompt = f"""
+        A professional LINE sticker illustration.
+        Subject: The character [{ref_id}]
+        Action/Emotion: {text}
+        
+        Style Reconstruction Guide:
         {character_description}
         
-        Action/Pose/Emotion based on this text: "{text}"
-        
-        Style:
-        {style_prompt}
-        Vector art, clean lines, white background, suitable for a sticker.
+        CRITICAL: Maintain absolute consistency with [{ref_id}]. Use the exact same line style, color treatment, and character proportions as the reference image.
+        Background: Pure white background.
+        Composition: Vector art, clean lines, high quality, 2D illustration.
         """
         
-        # Imagen 4 generation
-        # model: imagen-4.0-generate-001 (Found in available models list)
-        
         try:
+            # Note: Imagen 4 configuration
             response = _client.models.generate_images(
                 model='imagen-4.0-generate-001',
                 prompt=full_prompt,
                 config=types.GenerateImagesConfig(
                     number_of_images=1,
                     aspect_ratio="1:1",
-                    include_rai_reason=True
+                    include_rai_reason=True,
+                    reference_images=reference_images if reference_images else None,
+                    # strength=1.0 # If SDK supports this for reference images influence
                 )
             )
         except Exception as e:
