@@ -112,13 +112,24 @@ def generate_stamp(base_image, text, style_prompt=""):
         
         if response.generated_images:
             generated_image_obj = response.generated_images[0]
-            # New SDK returns an object with .image (PIL Image) usually
-            if hasattr(generated_image_obj, 'image'):
-                 generated_image = generated_image_obj.image
-            else:
-                 # It might be raw bytes in some versions/configs?
-                 # SDK v1 usually returns PIL image in .image property
-                 return None, "Generated image object format not recognized."
+            
+            # The SDK returns a GeneratedImage object. 
+            # To ensure we have a PIL Image with .thumbnail(), we load it from the binary data.
+            try:
+                if hasattr(generated_image_obj, 'image') and hasattr(generated_image_obj.image, '_image_bytes'):
+                    # Some versions might have it here
+                    image_bytes = generated_image_obj.image._image_bytes
+                elif hasattr(generated_image_obj, 'binary'):
+                    image_bytes = generated_image_obj.binary
+                else:
+                    # Fallback/Default location for raw bytes in some SDK versions
+                    image_bytes = generated_image_obj.image
+                
+                # Load as PIL Image
+                generated_image = Image.open(io.BytesIO(image_bytes))
+            except Exception as e:
+                print(f"Error converting response to PIL Image: {e}")
+                return None, f"Failed to process generated image: {e}"
 
             # RESIZE to LINE specs (max 370x320)
             if generated_image:
