@@ -68,7 +68,7 @@ def generate_stamp(base_image, text, style_prompt=""):
                 # Fallback to default description if vision fails, but log it
                 pass
 
-        # Step 2: Generate Image with Imagen 3
+        # Step 2: Generate Image with Imagen 4 (as 3.0 was not found, but 4.0 is available)
         full_prompt = f"""
         Create a LINE sticker/stamp illustration of a character.
         
@@ -82,12 +82,12 @@ def generate_stamp(base_image, text, style_prompt=""):
         Vector art, clean lines, white background, suitable for a sticker.
         """
         
-        # Imagen 3 generation
-        # model: imagen-3.0-generate-001
+        # Imagen 4 generation
+        # model: imagen-4.0-generate-001 (Found in available models list)
         
         try:
             response = _client.models.generate_images(
-                model='imagen-3.0-generate-001',
+                model='imagen-4.0-generate-001',
                 prompt=full_prompt,
                 config=types.GenerateImagesConfig(
                     number_of_images=1,
@@ -104,7 +104,7 @@ def generate_stamp(base_image, text, style_prompt=""):
                     all_models = _client.models.list()
                     # Filter for image generation models if possible, or just list a few
                     model_names = [m.name for m in all_models]
-                    return None, f"Model 'imagen-3.0-generate-001' not found. Available models on your key: {model_names}. ERROR details: {error_str}"
+                    return None, f"Model 'imagen-4.0-generate-001' not found. Available models on your key: {model_names}. ERROR details: {error_str}"
                 except Exception as list_err:
                      return None, f"Model not found and failed to list models: {list_err}. Original error: {error_str}"
             else:
