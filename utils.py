@@ -116,14 +116,27 @@ def generate_stamp(base_image, text, style_prompt=""):
             # The SDK returns a GeneratedImage object. 
             # To ensure we have a PIL Image with .thumbnail(), we load it from the binary data.
             try:
-                if hasattr(generated_image_obj, 'image') and hasattr(generated_image_obj.image, '_image_bytes'):
-                    # Some versions might have it here
-                    image_bytes = generated_image_obj.image._image_bytes
-                elif hasattr(generated_image_obj, 'binary'):
+                image_bytes = None
+                
+                # Try various ways the SDK might provide the bytes
+                if hasattr(generated_image_obj, 'image'):
+                    img_attr = generated_image_obj.image
+                    if isinstance(img_attr, bytes):
+                        image_bytes = img_attr
+                    elif hasattr(img_attr, 'image_bytes'): # Public attribute in new SDK
+                        image_bytes = img_attr.image_bytes
+                    elif hasattr(img_attr, '_image_bytes'): # Internal attribute
+                        image_bytes = img_attr._image_bytes
+                
+                if image_bytes is None and hasattr(generated_image_obj, 'binary'):
                     image_bytes = generated_image_obj.binary
-                else:
-                    # Fallback/Default location for raw bytes in some SDK versions
-                    image_bytes = generated_image_obj.image
+                
+                if image_bytes is None:
+                    # Final attempt: direct cast to bytes if it's some bytes-compatible object
+                    try:
+                        image_bytes = bytes(generated_image_obj.image)
+                    except:
+                        return None, f"Could not extract image bytes from {type(generated_image_obj.image)}"
                 
                 # Load as PIL Image
                 generated_image = Image.open(io.BytesIO(image_bytes))
