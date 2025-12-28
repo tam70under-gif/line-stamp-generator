@@ -148,7 +148,7 @@ if st.button("🚀 Generate Stamps"):
             status_text.text(f"Generating stamp {i+1}/{MAX_ITEMS}: '{text}'...")
             
             # Generate
-            img = utils.generate_stamp(base_image, text, style_prompt="Anime style, cute, expressive")
+            img, error_msg = utils.generate_stamp(base_image, text, style_prompt="Anime style, cute, expressive")
             
             if img:
                 generated_images[f"sticker_{i+1:02d}.png"] = img
@@ -157,7 +157,7 @@ if st.button("🚀 Generate Stamps"):
                 with cols[i % 4]:
                     st.image(img, caption=text, use_container_width=True)
             else:
-                st.warning(f"Failed to generate: {text}")
+                st.warning(f"Failed to generate: {text}\nError: {error_msg}")
             
             # Update Progress
             progress_bar.progress((i + 1) / MAX_ITEMS)

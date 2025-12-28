@@ -25,7 +25,7 @@ def generate_stamp(base_image, text, style_prompt=""):
         style_prompt (str): Additional style description.
     
     Returns:
-        PIL.Image: The generated image resized to target dimensions.
+        tuple: (PIL.Image or None, str or None) - The generated image and an error message if any.
     """
     try:
         # Note: As of late 2024/early 2025, the Python SDK for Imagen 3 might vary.
@@ -104,13 +104,13 @@ def generate_stamp(base_image, text, style_prompt=""):
             # RESIZE to LINE specs (max 370x320)
             # We will resize to fit within 370x320 maintaining aspect ratio
             generated_image.thumbnail((370, 320), Image.Resampling.LANCZOS)
-            return generated_image
+            return generated_image, None
         
-        return None
+        return None, "No image returned from API."
 
     except Exception as e:
         print(f"Error generating image: {e}")
-        return None
+        return None, str(e)
 
 def create_zip(images_map):
     """
