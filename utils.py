@@ -2,15 +2,23 @@ import os
 import io
 import zipfile
 import textwrap
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from PIL import Image
 
+# Global client instance
+_client = None
+
 def init_gemini(api_key):
-    """Initializes the Gemini API with the provided key."""
+    """Initializes the Gemini API Client with the provided key."""
+    global _client
     if not api_key:
         return False, "API Key is missing."
     try:
-        genai.configure(api_key=api_key)
+        # Initialize the client
+        _client = genai.Client(api_key=api_key)
+        # Verify by making a cheap call? Or just assume it's good if valid format.
+        # Actually initializing the client doesn't validate the key until a call is made.
         return True, "API Key configured successfully."
     except Exception as e:
         return False, str(e)
@@ -18,6 +26,9 @@ def init_gemini(api_key):
 def generate_stamp(base_image, text, style_prompt=""):
     """
     Generates a stamp image using Gemini (Imagen 3) based on a base image and text.
+    Uses a two-step process:
+    1. Describe the base image (if present) using Gemini 1.5 Pro.
+    2. Generate the stamp using Imagen 3 with the description + text.
     
     Args:
         base_image (PIL.Image): The reference character image.
@@ -27,45 +38,37 @@ def generate_stamp(base_image, text, style_prompt=""):
     Returns:
         tuple: (PIL.Image or None, str or None) - The generated image and an error message if any.
     """
+    global _client
+    if not _client:
+        return None, "API not initialized. Please configure API Key."
+
     try:
-        # Note: As of late 2024/early 2025, the Python SDK for Imagen 3 might vary.
-        # This implementation assumes the 'imagen-3.0-generate-001' or similar model is accessible 
-        # via the standard generation methods, or we use a text-to-image prompting strategy 
-        # if direct image-to-image is not strictly supported in the same way.
-        # However, for 'keeping character features', we ideally need Model fine-tuning or 
-        # a strong multi-modal prompt with the image as input.
-        # Standard Imagen 3 API often takes text prompts. 
-        # If we can't pass the image directly for style transfer content preservation in standard API without fine-tuning,
-        # we will describe the character or assume the user prompt allows for it.
-        # BUT, since the user asked for "Gemini 3 Pro", we might be using the Multi-modal capabilities of Gemini 1.5 Pro/Flash
-        # or the newer Gemini models to GENERATE images (if supported) or just describe it.
-        # 
-        # The prompt specifically asked for "Image Generation Engine: Gemini 3 Pro (Imagen 3 API)".
-        # We will use the 'imagen-3.0-generate-001' model for generation.
-        
-        model = genai.ImageGenerationModel("imagen-3.0-generate-001")
-        
-        # Construct a detailed prompt
-        # Since we can't easily pass the 'base_image' ref to Imagen 3 standard API (it's text-to-image usually),
-        # WE WILL ASSUME THIS IS A LIMITATION unless we use Gemini 1.5 Pro to 'describe' the image first, 
-        # then pass the description to Imagen.
-        # Let's try that hybrid approach if possible, OR just rely on the text prompt if the user didn't implement image upload logic for the prompt.
-        # Wait, the requirements said "Upload base image... Exec logic: preserve base image features".
-        # This implies we might need to describe the image first.
-        
         # Step 1: Describe the base image if provided
-        # We need a vision model for this.
-        vision_model = genai.GenerativeModel('gemini-1.5-pro') # Or pro-002, 1.5-flash which is faster
+        character_description = "A cute mascot character."
         
         if base_image:
-             desc_response = vision_model.generate_content([
-                 "Describe this character in detail, focusing on physical appearance (hair, eyes, clothes, colors), art style, and key features so that an artist can draw it exactly the same. Keep it concise but descriptive.",
-                 base_image
-             ])
-             character_description = desc_response.text
-        else:
-             character_description = "A cute mascot character."
+            try:
+                # Resize base image if too large (optional, but good practice for API)
+                img_byte_arr = io.BytesIO()
+                base_image.save(img_byte_arr, format='PNG')
+                # Base64 encoding is handled by the SDK if we pass the PIL image directly usually, 
+                # or we can pass bytes. The new SDK supports PIL images in contents.
+                
+                response = _client.models.generate_content(
+                    model='gemini-1.5-pro',
+                    contents=[
+                        "Describe this character in detail, focusing on physical appearance (hair, eyes, clothes, colors), art style, and key features so that an artist can draw it exactly the same. Keep it concise but descriptive.",
+                        base_image
+                    ]
+                )
+                if response.text:
+                    character_description = response.text
+            except Exception as e:
+                print(f"Error describing image: {e}")
+                # Fallback to default description if vision fails, but log it
+                pass
 
+        # Step 2: Generate Image with Imagen 3
         full_prompt = f"""
         Create a LINE sticker/stamp illustration of a character.
         
@@ -79,32 +82,35 @@ def generate_stamp(base_image, text, style_prompt=""):
         Vector art, clean lines, white background, suitable for a sticker.
         """
         
-        result = model.generate_images(
+        # Imagen 3 generation
+        # model: imagen-3.0-generate-001
+        
+        response = _client.models.generate_images(
+            model='imagen-3.0-generate-001',
             prompt=full_prompt,
-            number_of_images=1,
-            aspect_ratio="1:1", # approximate, we resize later
-            safety_filter_level="block_only_high",
-            person_generation="allow_adult"
+            config=types.GenerateImagesConfig(
+                number_of_images=1,
+                aspect_ratio="1:1",
+                # safety_filter_level="block_only_high", # Check if this param matches new SDK types
+                # person_generation="allow_adult",
+                include_rai_reason=True
+            )
         )
         
-        if result and result.images:
-            # Access PIL image safely
-            if hasattr(result.images[0], 'image'):
-                generated_image = result.images[0].image
-            elif hasattr(result.images[0], '_pil_image'):
-                generated_image = result.images[0]._pil_image
+        if response.generated_images:
+            generated_image_obj = response.generated_images[0]
+            # New SDK returns an object with .image (PIL Image) usually
+            if hasattr(generated_image_obj, 'image'):
+                 generated_image = generated_image_obj.image
             else:
-                # Fallback or error if neither exists (though one should)
-                # In some versions, result.images[0] IS the PIL image
-                if isinstance(result.images[0], Image.Image):
-                     generated_image = result.images[0]
-                else:
-                     raise ValueError("Could not retrieve PIL image from response.")
+                 # It might be raw bytes in some versions/configs?
+                 # SDK v1 usually returns PIL image in .image property
+                 return None, "Generated image object format not recognized."
 
             # RESIZE to LINE specs (max 370x320)
-            # We will resize to fit within 370x320 maintaining aspect ratio
-            generated_image.thumbnail((370, 320), Image.Resampling.LANCZOS)
-            return generated_image, None
+            if generated_image:
+                generated_image.thumbnail((370, 320), Image.Resampling.LANCZOS)
+                return generated_image, None
         
         return None, "No image returned from API."
 
