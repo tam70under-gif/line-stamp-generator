@@ -85,17 +85,30 @@ def generate_stamp(base_image, text, style_prompt=""):
         # Imagen 3 generation
         # model: imagen-3.0-generate-001
         
-        response = _client.models.generate_images(
-            model='imagen-3.0-generate-001',
-            prompt=full_prompt,
-            config=types.GenerateImagesConfig(
-                number_of_images=1,
-                aspect_ratio="1:1",
-                # safety_filter_level="block_only_high", # Check if this param matches new SDK types
-                # person_generation="allow_adult",
-                include_rai_reason=True
+        try:
+            response = _client.models.generate_images(
+                model='imagen-3.0-generate-001',
+                prompt=full_prompt,
+                config=types.GenerateImagesConfig(
+                    number_of_images=1,
+                    aspect_ratio="1:1",
+                    include_rai_reason=True
+                )
             )
-        )
+        except Exception as e:
+            # Check for 404 or other API errors
+            error_str = str(e)
+            if "404" in error_str or "NOT_FOUND" in error_str:
+                # Attempt to list models to help debugging
+                try:
+                    all_models = _client.models.list()
+                    # Filter for image generation models if possible, or just list a few
+                    model_names = [m.name for m in all_models]
+                    return None, f"Model 'imagen-3.0-generate-001' not found. Available models on your key: {model_names}. ERROR details: {error_str}"
+                except Exception as list_err:
+                     return None, f"Model not found and failed to list models: {list_err}. Original error: {error_str}"
+            else:
+                raise e
         
         if response.generated_images:
             generated_image_obj = response.generated_images[0]
